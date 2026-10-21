@@ -9,12 +9,68 @@ let turn = RED; // Red starts (Player)
 let selectedPiece = null; // {r, c}
 let validMoves = []; // Array of move objects
 let forcedJumpPiece = null; // Enforces multi-jump rules
+let soundEnabled = true;
+let isAnimating = false;
 
 const statusEl = document.getElementById('status');
 const redCountEl = document.getElementById('red-count');
 const whiteCountEl = document.getElementById('white-count');
 const boardEl = document.getElementById('board');
 const restartBtn = document.getElementById('restart-btn');
+const soundBtn = document.getElementById('sound-btn');
+
+// Web Audio API Synthesizer for Sound Effects
+let audioCtx = null;
+
+function initAudio() {
+    if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+}
+
+function playSound(type) {
+    if (!soundEnabled) return;
+    initAudio();
+    if (!audioCtx) return;
+
+    if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+    }
+
+    const osc = audioCtx.createOscillator();
+    const gainNode = audioCtx.createGain();
+    osc.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+
+    const now = audioCtx.currentTime;
+
+    if (type === 'move') {
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(300, now);
+        osc.frequency.exponentialRampToValueAtTime(150, now + 0.1);
+        gainNode.gain.setValueAtTime(0.15, now);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+        osc.start(now);
+        osc.stop(now + 0.1);
+    } else if (type === 'jump') {
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(400, now);
+        osc.frequency.exponentialRampToValueAtTime(600, now + 0.15);
+        gainNode.gain.setValueAtTime(0.2, now);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+        osc.start(now);
+        osc.stop(now + 0.15);
+    } else if (type === 'king') {
+        osc.type = 'square';
+        osc.frequency.setValueAtTime(250, now);
+        osc.frequency.setValueAtTime(350, now + 0.1);
+        osc.frequency.setValueAtTime(500, now + 0.2);
+        gainNode.gain.setValueAtTime(0.15, now);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+        osc.start(now);
+        osc.stop(now + 0.3);
+    }
+}
 
 // Initialize Game
 function initGame() {
@@ -42,9 +98,18 @@ function initGame() {
     selectedPiece = null;
     validMoves = [];
     forcedJumpPiece = null;
+    isAnimating = false;
 
     renderBoard();
-    updateStatus();
+    updateStatusText();
+}
+
+function updateStatusText() {
+    if (turn === RED) {
+        statusEl.textContent = "Your Turn (Red)";
+    } else if (turn === WHITE) {
+        statusEl.textContent = "AI is thinking...";
+    }
 }
 
 // Render Board to HTML
@@ -108,7 +173,6 @@ function checkGameOver(redCount, whiteCount) {
         statusEl.textContent = "Red (You) Win!";
         disableGame();
     } else {
-        // Check if current player has any moves available
         const allMoves = getAllPossibleMoves(board, turn);
         if (allMoves.length === 0) {
             statusEl.textContent = turn === RED ? "Red has no moves. White (AI) Wins!" : "White has no moves. Red (You) Win!";
@@ -130,7 +194,6 @@ function getAllPossibleMoves(currentBoard, player) {
         for (let c = 0; c < 8; c++) {
             const piece = currentBoard[r][c];
             if (piece && isPlayerPiece(piece, player)) {
-                // If we are locked into a multi-jump sequence for a specific piece
                 if (forcedJumpPiece && (forcedJumpPiece.r !== r || forcedJumpPiece.c !== c)) {
                     continue;
                 }
@@ -142,10 +205,7 @@ function getAllPossibleMoves(currentBoard, player) {
         }
     }
 
-    // In checkers, if a jump is available, it is mandatory!
-    if (jumps.length > 0) {
-        return jumps;
-    }
+    if (jumps.length > 0) return jumps;
     return regularMoves;
 }
 
@@ -156,23 +216,20 @@ function getMovesForPiece(currentBoard, r, c) {
     const isRed = piece === RED || piece === RED_KING;
 
     let directions = [];
-    if (isRed || isKing) directions.push(-1); // Up directions
-    if (!isRed || isKing) directions.push(1);  // Down directions
+    if (isRed || isKing) directions.push(-1);
+    if (!isRed || isKing) directions.push(1);
 
     let jumps = [];
     let regular = [];
 
-    // Diagonal directions
     directions.forEach(dr => {
         [-1, 1].forEach(dc => {
-            // Check regular move
             let tR = r + dr;
             let tC = c + dc;
             if (isValidCoord(tR, tC) && currentBoard[tR][tC] === null) {
                 regular.push({ fromR: r, fromC: c, toR: tR, toC: tC, jumped: null });
             }
 
-            // Check jump move
             let jR = r + (dr * 2);
             let jC = c + (dc * 2);
             let midR = r + dr;
@@ -207,14 +264,13 @@ function isValidCoord(r, c) {
 
 // Handle square click interaction
 function handleSquareClick(r, c) {
-    if (turn !== RED) return; // Ignore clicks if not player's turn
+    if (turn !== RED || isAnimating) return;
 
     const piece = board[r][c];
 
-    // If clicking on player's own piece
     if (piece && isPlayerPiece(piece, RED)) {
         if (forcedJumpPiece && (forcedJumpPiece.r !== r || forcedJumpPiece.c !== c)) {
-            return; // Must continue multi-jump with the active piece
+            return;
         }
 
         const allMoves = getAllPossibleMoves(board, RED);
@@ -228,7 +284,6 @@ function handleSquareClick(r, c) {
         return;
     }
 
-    // If clicking a destination square
     if (selectedPiece) {
         const targetMove = validMoves.find(m => m.toR === r && m.toC === c);
         if (targetMove) {
@@ -237,62 +292,127 @@ function handleSquareClick(r, c) {
     }
 }
 
-// Execute move and handle king promotions and multi-jumps
-function executeMove(move) {
-    let piece = board[move.fromR][move.fromC];
-    board[move.fromR][move.fromC] = null;
-    board[move.toR][move.toC] = piece;
+// Smooth Visual Animation Function
+function animateMove(move, callback) {
+    isAnimating = true;
+    const squareWidth = boardEl.clientWidth / 8;
+    const squareHeight = boardEl.clientHeight / 8;
 
-    let wasJump = false;
-    if (move.jumped) {
-        board[move.jumped.r][move.jumped.c] = null;
-        wasJump = true;
+    // Find origin piece element from DOM
+    const originSquare = boardEl.children[move.fromR * 8 + move.fromC];
+    const pieceEl = originSquare.querySelector('.piece');
+
+    if (!pieceEl) {
+        // Fallback if DOM element missing
+        callback();
+        return;
     }
 
-    // King Promotion
-    if (piece === RED && move.toR === 0) {
-        board[move.toR][move.toC] = RED_KING;
-        piece = RED_KING;
-    } else if (piece === WHITE && move.toR === 7) {
-        board[move.toR][move.toC] = WHITE_KING;
-        piece = WHITE_KING;
-    }
+    // Temporarily clone or extract element to float over board
+    const clone = pieceEl.cloneNode(true);
+    originSquare.innerHTML = ''; // Clear source square visually for animation
+    
+    clone.classList.add('animating');
+    clone.style.width = `${squareWidth * 0.75}px`;
+    clone.style.height = `${squareHeight * 0.75}px`;
+    
+    // Initial absolute offset
+    const startX = move.fromC * squareWidth + (squareWidth * 0.125);
+    const startY = move.fromR * squareHeight + (squareHeight * 0.125);
+    const targetX = move.toC * squareWidth + (squareWidth * 0.125);
+    const targetY = move.toR * squareHeight + (squareHeight * 0.125);
 
-    // Check for multi-jump opportunity
-    if (wasJump) {
-        const nextMoves = getMovesForPiece(board, move.toR, move.toC);
-        // Multi-jumps must only look for additional jumps
-        if (nextMoves.jumps.length > 0) {
-            forcedJumpPiece = { r: move.toR, c: move.toC };
-            selectedPiece = forcedJumpPiece;
-            validMoves = nextMoves.jumps;
-            renderBoard();
-            return;
-        }
-    }
+    clone.style.left = `${startX}px`;
+    clone.style.top = `${startY}px`;
+    boardEl.appendChild(clone);
 
-    // Reset jump sequence state & switch turns
-    forcedJumpPiece = null;
-    selectedPiece = null;
-    validMoves = [];
+    // Force reflow
+    clone.getBoundingClientRect();
 
-    if (turn === RED) {
-        turn = WHITE;
-        statusEl.textContent = "AI is thinking...";
-        renderBoard();
-        setTimeout(aiTurn, 500); // Small delay for smooth AI response
-    } else {
-        turn = RED;
-        statusEl.textContent = "Your Turn (Red)";
-        renderBoard();
-    }
+    // Trigger transform translation
+    const deltaX = targetX - startX;
+    const deltaY = targetY - startY;
+    clone.style.transform = `translate(${deltaX}px, ${deltaY}px)`;
+
+    setTimeout(() => {
+        clone.remove();
+        isAnimating = false;
+        callback();
+    }, 250); // Matches transition time in CSS
 }
 
-// --- AI Logic (Minimax with Alpha-Beta Pruning) ---
+// Execute move with animation and audio triggers
+function executeMove(move) {
+    let piece = board[move.fromR][move.fromC];
+    let isJump = move.jumped !== null;
+    let becomesKing = false;
+
+    // Check if promotion will happen
+    if (piece === RED && move.toR === 0) becomesKing = true;
+    else if (piece === WHITE && move.toR === 7) becomesKing = true;
+
+    // Play sound ahead or during animation
+    if (isJump) {
+        playSound('jump');
+    } else {
+        playSound('move');
+    }
+
+    animateMove(move, () => {
+        // Perform actual logical board updates after animation finishes
+        board[move.fromR][move.fromC] = null;
+        board[move.toR][move.toC] = piece;
+
+        if (isJump) {
+            board[move.jumped.r][move.jumped.c] = null;
+        }
+
+        if (becomesKing) {
+            if (piece === RED) {
+                board[move.toR][move.toC] = RED_KING;
+                piece = RED_KING;
+            } else {
+                board[move.toR][move.toC] = WHITE_KING;
+                piece = WHITE_KING;
+            }
+            playSound('king');
+        }
+
+        // Check for multi-jump opportunity
+        if (isJump) {
+            const nextMoves = getMovesForPiece(board, move.toR, move.toC);
+            if (nextMoves.jumps.length > 0) {
+                forcedJumpPiece = { r: move.toR, c: move.toC };
+                selectedPiece = forcedJumpPiece;
+                validMoves = nextMoves.jumps;
+                renderBoard();
+                return;
+            }
+        }
+
+        // Reset state & switch turns
+        forcedJumpPiece = null;
+        selectedPiece = null;
+        validMoves = [];
+
+        if (turn === RED) {
+            turn = WHITE;
+            updateStatusText();
+            renderBoard();
+            setTimeout(aiTurn, 400);
+        } else {
+            turn = RED;
+            updateStatusText();
+            renderBoard();
+        }
+    });
+}
+
+// --- AI Logic ---
 function aiTurn() {
     if (turn !== WHITE) return;
 
-    const bestMove = findBestMove(board, 4); // Search depth of 4
+    const bestMove = findBestMove(board, 4);
     if (bestMove) {
         executeMove(bestMove);
     }
@@ -332,7 +452,6 @@ function findBestMove(currentBoard, depth) {
         }
     }
 
-    // Randomize among best moves if there's a tie
     return bestMoves[Math.floor(Math.random() * bestMoves.length)];
 }
 
@@ -382,13 +501,17 @@ function applyMoveSimulation(currentBoard, move) {
         currentBoard[move.jumped.r][move.jumped.c] = null;
     }
 
-    // Promotion during simulation
     if (piece === RED && move.toR === 0) currentBoard[move.toR][move.toC] = RED_KING;
     if (piece === WHITE && move.toR === 7) currentBoard[move.toR][move.toC] = WHITE_KING;
 }
 
-// Restart button listener
+// Button Event Listeners
 restartBtn.addEventListener('click', initGame);
+
+soundBtn.addEventListener('click', () => {
+    soundEnabled = !soundEnabled;
+    soundBtn.textContent = `Sound: ${soundEnabled ? 'ON' : 'OFF'}`;
+});
 
 // Run the game on load
 initGame();
