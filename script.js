@@ -1,25 +1,25 @@
 // Game Constants & State
-const RED = 'r';
-const WHITE = 'w';
-const RED_KING = 'R';
+const WHITE = 'w'; // Player (Starts at bottom like reference)
+const BLACK = 'b'; // AI (Starts at top)
 const WHITE_KING = 'W';
+const BLACK_KING = 'B';
 
 let board = [];
-let turn = RED; // Red starts (Player)
-let selectedPiece = null; // {r, c}
-let validMoves = []; // Array of move objects
-let forcedJumpPiece = null; // Enforces multi-jump rules
+let turn = WHITE; 
+let selectedPiece = null; 
+let validMoves = []; 
+let forcedJumpPiece = null; 
 let soundEnabled = true;
 let isAnimating = false;
 
 const statusEl = document.getElementById('status');
-const redCountEl = document.getElementById('red-count');
 const whiteCountEl = document.getElementById('white-count');
+const blackCountEl = document.getElementById('black-count');
 const boardEl = document.getElementById('board');
 const restartBtn = document.getElementById('restart-btn');
 const soundBtn = document.getElementById('sound-btn');
 
-// Web Audio API Synthesizer for Sound Effects
+// Web Audio API Sound Synthesizer
 let audioCtx = null;
 
 function initAudio() {
@@ -46,25 +46,25 @@ function playSound(type) {
 
     if (type === 'move') {
         osc.type = 'sine';
-        osc.frequency.setValueAtTime(300, now);
-        osc.frequency.exponentialRampToValueAtTime(150, now + 0.1);
+        osc.frequency.setValueAtTime(320, now);
+        osc.frequency.exponentialRampToValueAtTime(160, now + 0.1);
         gainNode.gain.setValueAtTime(0.15, now);
         gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
         osc.start(now);
         osc.stop(now + 0.1);
     } else if (type === 'jump') {
         osc.type = 'triangle';
-        osc.frequency.setValueAtTime(400, now);
-        osc.frequency.exponentialRampToValueAtTime(600, now + 0.15);
+        osc.frequency.setValueAtTime(420, now);
+        osc.frequency.exponentialRampToValueAtTime(640, now + 0.15);
         gainNode.gain.setValueAtTime(0.2, now);
         gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
         osc.start(now);
         osc.stop(now + 0.15);
     } else if (type === 'king') {
         osc.type = 'square';
-        osc.frequency.setValueAtTime(250, now);
-        osc.frequency.setValueAtTime(350, now + 0.1);
-        osc.frequency.setValueAtTime(500, now + 0.2);
+        osc.frequency.setValueAtTime(260, now);
+        osc.frequency.setValueAtTime(380, now + 0.1);
+        osc.frequency.setValueAtTime(520, now + 0.2);
         gainNode.gain.setValueAtTime(0.15, now);
         gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
         osc.start(now);
@@ -72,12 +72,21 @@ function playSound(type) {
     }
 }
 
-// Initialize Game
+// Initialize Standard Checkers Setup
 function initGame() {
     board = Array(8).fill(null).map(() => Array(8).fill(null));
     
-    // Setup White (AI) pieces on rows 0, 1, 2
+    // Black (AI) pieces placed on rows 0, 1, 2
     for (let r = 0; r < 3; r++) {
+        for (let c = 0; c < 8; c++) {
+            if ((r + c) % 2 === 1) {
+                board[r][c] = BLACK;
+            }
+        }
+    }
+
+    // White (Player) pieces placed on rows 5, 6, 7
+    for (let r = 5; r < 8; r++) {
         for (let c = 0; c < 8; c++) {
             if ((r + c) % 2 === 1) {
                 board[r][c] = WHITE;
@@ -85,16 +94,7 @@ function initGame() {
         }
     }
 
-    // Setup Red (Player) pieces on rows 5, 6, 7
-    for (let r = 5; r < 8; r++) {
-        for (let c = 0; c < 8; c++) {
-            if ((r + c) % 2 === 1) {
-                board[r][c] = RED;
-            }
-        }
-    }
-
-    turn = RED;
+    turn = WHITE;
     selectedPiece = null;
     validMoves = [];
     forcedJumpPiece = null;
@@ -105,18 +105,18 @@ function initGame() {
 }
 
 function updateStatusText() {
-    if (turn === RED) {
-        statusEl.textContent = "Your Turn (Red)";
-    } else if (turn === WHITE) {
-        statusEl.textContent = "AI is thinking...";
+    if (turn === WHITE) {
+        statusEl.textContent = "Your Turn (White)";
+    } else if (turn === BLACK) {
+        statusEl.textContent = "AI (Black) is thinking...";
     }
 }
 
-// Render Board to HTML
+// Render Board & Pieces
 function renderBoard() {
     boardEl.innerHTML = '';
-    let redPieces = 0;
     let whitePieces = 0;
+    let blackPieces = 0;
 
     for (let r = 0; r < 8; r++) {
         for (let c = 0; c < 8; c++) {
@@ -128,26 +128,27 @@ function renderBoard() {
 
             const piece = board[r][c];
             if (piece) {
-                if (piece.toLowerCase() === RED) redPieces++;
-                else whitePieces++;
+                if (piece.toLowerCase() === WHITE) whitePieces++;
+                else blackPieces++;
 
                 const pieceEl = document.createElement('div');
                 pieceEl.classList.add('piece');
-                if (piece === RED || piece === RED_KING) pieceEl.classList.add('red');
-                else pieceEl.classList.add('white');
+                if (piece === WHITE || piece === WHITE_KING) pieceEl.classList.add('white');
+                else pieceEl.classList.add('black');
 
-                if (piece === RED_KING || piece === WHITE_KING) {
+                if (piece === WHITE_KING || piece === BLACK_KING) {
                     pieceEl.classList.add('king');
+                    const crown = document.createElement('span');
+                    crown.textContent = '👑';
+                    pieceEl.appendChild(crown);
                 }
                 square.appendChild(pieceEl);
             }
 
-            // Highlight selected piece
             if (selectedPiece && selectedPiece.r === r && selectedPiece.c === c) {
                 square.classList.add('selected');
             }
 
-            // Highlight valid destination moves
             const isValidDest = validMoves.some(m => m.toR === r && m.toC === c);
             if (isValidDest) {
                 square.classList.add('highlight');
@@ -158,24 +159,23 @@ function renderBoard() {
         }
     }
 
-    redCountEl.textContent = redPieces;
     whiteCountEl.textContent = whitePieces;
+    blackCountEl.textContent = blackPieces;
 
-    checkGameOver(redPieces, whitePieces);
+    checkGameOver(whitePieces, blackPieces);
 }
 
-// Check if game is over
-function checkGameOver(redCount, whiteCount) {
-    if (redCount === 0) {
-        statusEl.textContent = "White (AI) Wins!";
+function checkGameOver(whiteCount, blackCount) {
+    if (whiteCount === 0) {
+        statusEl.textContent = "Black (AI) Wins!";
         disableGame();
-    } else if (whiteCount === 0) {
-        statusEl.textContent = "Red (You) Win!";
+    } else if (blackCount === 0) {
+        statusEl.textContent = "White (You) Win!";
         disableGame();
     } else {
         const allMoves = getAllPossibleMoves(board, turn);
         if (allMoves.length === 0) {
-            statusEl.textContent = turn === RED ? "Red has no moves. White (AI) Wins!" : "White has no moves. Red (You) Win!";
+            statusEl.textContent = turn === WHITE ? "White has no moves. Black (AI) Wins!" : "Black has no moves. White (You) Win!";
             disableGame();
         }
     }
@@ -185,7 +185,7 @@ function disableGame() {
     turn = null;
 }
 
-// Get all legal moves for a given player/board state
+// Move Rules Calculations
 function getAllPossibleMoves(currentBoard, player) {
     let jumps = [];
     let regularMoves = [];
@@ -209,15 +209,14 @@ function getAllPossibleMoves(currentBoard, player) {
     return regularMoves;
 }
 
-// Get valid moves for a single piece
 function getMovesForPiece(currentBoard, r, c) {
     const piece = currentBoard[r][c];
-    const isKing = piece === RED_KING || piece === WHITE_KING;
-    const isRed = piece === RED || piece === RED_KING;
+    const isKing = piece === WHITE_KING || piece === BLACK_KING;
+    const isWhite = piece === WHITE || piece === WHITE_KING;
 
     let directions = [];
-    if (isRed || isKing) directions.push(-1);
-    if (!isRed || isKing) directions.push(1);
+    if (isWhite || isKing) directions.push(-1); // Up
+    if (!isWhite || isKing) directions.push(1);  // Down
 
     let jumps = [];
     let regular = [];
@@ -236,7 +235,7 @@ function getMovesForPiece(currentBoard, r, c) {
             let midC = c + dc;
             if (isValidCoord(jR, jC) && currentBoard[jR][jC] === null) {
                 let midPiece = currentBoard[midR][midC];
-                if (midPiece !== null && !isPlayerPiece(midPiece, isRed ? RED : WHITE)) {
+                if (midPiece !== null && !isPlayerPiece(midPiece, isWhite ? WHITE : BLACK)) {
                     jumps.push({ 
                         fromR: r, 
                         fromC: c, 
@@ -253,8 +252,8 @@ function getMovesForPiece(currentBoard, r, c) {
 }
 
 function isPlayerPiece(piece, player) {
-    if (player === RED) return piece === RED || piece === RED_KING;
     if (player === WHITE) return piece === WHITE || piece === WHITE_KING;
+    if (player === BLACK) return piece === BLACK || piece === BLACK_KING;
     return false;
 }
 
@@ -262,18 +261,18 @@ function isValidCoord(r, c) {
     return r >= 0 && r < 8 && c >= 0 && c < 8;
 }
 
-// Handle square click interaction
+// User Interaction Handling
 function handleSquareClick(r, c) {
-    if (turn !== RED || isAnimating) return;
+    if (turn !== WHITE || isAnimating) return;
 
     const piece = board[r][c];
 
-    if (piece && isPlayerPiece(piece, RED)) {
+    if (piece && isPlayerPiece(piece, WHITE)) {
         if (forcedJumpPiece && (forcedJumpPiece.r !== r || forcedJumpPiece.c !== c)) {
             return;
         }
 
-        const allMoves = getAllPossibleMoves(board, RED);
+        const allMoves = getAllPossibleMoves(board, WHITE);
         const pieceMoves = allMoves.filter(m => m.fromR === r && m.fromC === c);
 
         if (pieceMoves.length > 0) {
@@ -292,44 +291,38 @@ function handleSquareClick(r, c) {
     }
 }
 
-// Smooth Visual Animation Function
+// Smooth Animation Engine
 function animateMove(move, callback) {
     isAnimating = true;
     const squareWidth = boardEl.clientWidth / 8;
     const squareHeight = boardEl.clientHeight / 8;
 
-    // Find origin piece element from DOM
     const originSquare = boardEl.children[move.fromR * 8 + move.fromC];
     const pieceEl = originSquare.querySelector('.piece');
 
     if (!pieceEl) {
-        // Fallback if DOM element missing
         callback();
         return;
     }
 
-    // Temporarily clone or extract element to float over board
     const clone = pieceEl.cloneNode(true);
-    originSquare.innerHTML = ''; // Clear source square visually for animation
+    originSquare.innerHTML = ''; 
     
     clone.classList.add('animating');
-    clone.style.width = `${squareWidth * 0.75}px`;
-    clone.style.height = `${squareHeight * 0.75}px`;
+    clone.style.width = `${squareWidth * 0.78}px`;
+    clone.style.height = `${squareHeight * 0.78}px`;
     
-    // Initial absolute offset
-    const startX = move.fromC * squareWidth + (squareWidth * 0.125);
-    const startY = move.fromR * squareHeight + (squareHeight * 0.125);
-    const targetX = move.toC * squareWidth + (squareWidth * 0.125);
-    const targetY = move.toR * squareHeight + (squareHeight * 0.125);
+    const startX = move.fromC * squareWidth + (squareWidth * 0.11);
+    const startY = move.fromR * squareHeight + (squareHeight * 0.11);
+    const targetX = move.toC * squareWidth + (squareWidth * 0.11);
+    const targetY = move.toR * squareHeight + (squareHeight * 0.11);
 
     clone.style.left = `${startX}px`;
     clone.style.top = `${startY}px`;
     boardEl.appendChild(clone);
 
-    // Force reflow
     clone.getBoundingClientRect();
 
-    // Trigger transform translation
     const deltaX = targetX - startX;
     const deltaY = targetY - startY;
     clone.style.transform = `translate(${deltaX}px, ${deltaY}px)`;
@@ -338,20 +331,18 @@ function animateMove(move, callback) {
         clone.remove();
         isAnimating = false;
         callback();
-    }, 250); // Matches transition time in CSS
+    }, 250);
 }
 
-// Execute move with animation and audio triggers
 function executeMove(move) {
     let piece = board[move.fromR][move.fromC];
     let isJump = move.jumped !== null;
     let becomesKing = false;
 
-    // Check if promotion will happen
-    if (piece === RED && move.toR === 0) becomesKing = true;
-    else if (piece === WHITE && move.toR === 7) becomesKing = true;
+    // Promotion rows (White promotes at row 0, Black promotes at row 7)
+    if (piece === WHITE && move.toR === 0) becomesKing = true;
+    else if (piece === BLACK && move.toR === 7) becomesKing = true;
 
-    // Play sound ahead or during animation
     if (isJump) {
         playSound('jump');
     } else {
@@ -359,7 +350,6 @@ function executeMove(move) {
     }
 
     animateMove(move, () => {
-        // Perform actual logical board updates after animation finishes
         board[move.fromR][move.fromC] = null;
         board[move.toR][move.toC] = piece;
 
@@ -368,17 +358,17 @@ function executeMove(move) {
         }
 
         if (becomesKing) {
-            if (piece === RED) {
-                board[move.toR][move.toC] = RED_KING;
-                piece = RED_KING;
-            } else {
+            if (piece === WHITE) {
                 board[move.toR][move.toC] = WHITE_KING;
                 piece = WHITE_KING;
+            } else {
+                board[move.toR][move.toC] = BLACK_KING;
+                piece = BLACK_KING;
             }
             playSound('king');
         }
 
-        // Check for multi-jump opportunity
+        // Multi-jump detection sequence
         if (isJump) {
             const nextMoves = getMovesForPiece(board, move.toR, move.toC);
             if (nextMoves.jumps.length > 0) {
@@ -390,27 +380,26 @@ function executeMove(move) {
             }
         }
 
-        // Reset state & switch turns
         forcedJumpPiece = null;
         selectedPiece = null;
         validMoves = [];
 
-        if (turn === RED) {
-            turn = WHITE;
+        if (turn === WHITE) {
+            turn = BLACK;
             updateStatusText();
             renderBoard();
             setTimeout(aiTurn, 400);
         } else {
-            turn = RED;
+            turn = WHITE;
             updateStatusText();
             renderBoard();
         }
     });
 }
 
-// --- AI Logic ---
+// AI Minimax Algorithm with Alpha-Beta Pruning
 function aiTurn() {
-    if (turn !== WHITE) return;
+    if (turn !== BLACK) return;
 
     const bestMove = findBestMove(board, 4);
     if (bestMove) {
@@ -423,17 +412,17 @@ function evaluateBoard(currentBoard) {
     for (let r = 0; r < 8; r++) {
         for (let c = 0; c < 8; c++) {
             const p = currentBoard[r][c];
-            if (p === WHITE) score += 10;
-            else if (p === WHITE_KING) score += 18;
-            else if (p === RED) score -= 10;
-            else if (p === RED_KING) score -= 18;
+            if (p === BLACK) score += 10;
+            else if (p === BLACK_KING) score += 18;
+            else if (p === WHITE) score -= 10;
+            else if (p === WHITE_KING) score -= 18;
         }
     }
     return score;
 }
 
 function findBestMove(currentBoard, depth) {
-    const allMoves = getAllPossibleMoves(currentBoard, WHITE);
+    const allMoves = getAllPossibleMoves(currentBoard, BLACK);
     if (allMoves.length === 0) return null;
 
     let bestScore = -Infinity;
@@ -456,7 +445,7 @@ function findBestMove(currentBoard, depth) {
 }
 
 function minimax(currentBoard, depth, isMaximizing, alpha, beta) {
-    const player = isMaximizing ? WHITE : RED;
+    const player = isMaximizing ? BLACK : WHITE;
     const allMoves = getAllPossibleMoves(currentBoard, player);
 
     if (depth === 0 || allMoves.length === 0) {
@@ -501,11 +490,11 @@ function applyMoveSimulation(currentBoard, move) {
         currentBoard[move.jumped.r][move.jumped.c] = null;
     }
 
-    if (piece === RED && move.toR === 0) currentBoard[move.toR][move.toC] = RED_KING;
-    if (piece === WHITE && move.toR === 7) currentBoard[move.toR][move.toC] = WHITE_KING;
+    if (piece === WHITE && move.toR === 0) currentBoard[move.toR][move.toC] = WHITE_KING;
+    if (piece === BLACK && move.toR === 7) currentBoard[move.toR][move.toC] = BLACK_KING;
 }
 
-// Button Event Listeners
+// UI Event Bindings
 restartBtn.addEventListener('click', initGame);
 
 soundBtn.addEventListener('click', () => {
@@ -513,5 +502,5 @@ soundBtn.addEventListener('click', () => {
     soundBtn.textContent = `Sound: ${soundEnabled ? 'ON' : 'OFF'}`;
 });
 
-// Run the game on load
+// Run application on load
 initGame();
